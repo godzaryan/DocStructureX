@@ -90,10 +90,8 @@ DocStructureX uses a **multi-step method to guarantee maximum accuracy and fallb
 ### 1. Clone the Repository
 
 ```
-
 git clone https://github.com/yourusername/DocStructureX.git
 cd DocStructureX
-
 ```
 
 ### 2. Python Virtual Environment (Recommended)
@@ -101,20 +99,16 @@ cd DocStructureX
 Create and activate a Python 3.10+ virtual environment:
 
 ```
-
 python -m venv venv
 source venv/bin/activate   \# Linux/macOS
 venv\Scripts\activate      \# Windows
-
 ```
 
 ### 3. Install Dependencies
 
 ```
-
 pip install --upgrade pip
 pip install -r requirements.txt
-
 ```
 
 > **Note:** The requirements are explicitly pinned to tested versions for stability.
@@ -130,9 +124,7 @@ Copy your input PDFs into the `input/` directory at project root.
 ### 2. Run Extraction
 
 ```
-
 python round1a_implementation.py
-
 ```
 
 This will process all `.pdf` files in `input/` and generate `.json` outline files in the `output/` folder.
@@ -142,7 +134,6 @@ This will process all `.pdf` files in `input/` and generate `.json` outline file
 Each JSON file contains:
 
 ```
-
 {
 "title": "Document Title",
 "outline": [
@@ -151,7 +142,6 @@ Each JSON file contains:
 {"level": "H3", "text": "Motivation", "page": 3}
 ]
 }
-
 ```
 
 ---
@@ -163,9 +153,7 @@ DocStructureX is fully containerized for portability and reproducibility.
 ### Build Docker Image
 
 ```
-
 docker build --platform linux/amd64 -t docstructurex:latest .
-
 ```
 
 ### Run Container
