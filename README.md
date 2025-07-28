@@ -171,13 +171,12 @@ docker build --platform linux/amd64 -t docstructurex:latest .
 ### Run Container
 
 ```
+docker run --rm -v $(pwd)/input:/app/input -v $(pwd)/output:/app/output --network none docstructurex:latest
+```
 
-docker run --rm \
--v \$(pwd)/input:/app/input \
--v \$(pwd)/output:/app/output \
---network none \
-docstructurex:latest
-
+For windows (cmd) :
+```
+docker run --rm -v %cd%/input:/app/input -v %cd%/output:/app/output --network none docstructurex:latest
 ```
 
 - Input PDFs are read from `/app/input`.
