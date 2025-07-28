@@ -1,0 +1,115 @@
+{
+  "title": "Architecture",
+  "outline": [
+    {
+      "level": "H1",
+      "text": "Graph neural network",
+      "page": 1
+    },
+    {
+      "level": "H3",
+      "text": "Graph neural networks",
+      "page": 1
+    },
+    {
+      "level": "H3",
+      "text": "GNN",
+      "page": 1
+    },
+    {
+      "level": "H2",
+      "text": "Architecture",
+      "page": 1
+    },
+    {
+      "level": "H2",
+      "text": "Message passing layers",
+      "page": 2
+    },
+    {
+      "level": "H2",
+      "text": "Graph convolutional network",
+      "page": 3
+    },
+    {
+      "level": "H2",
+      "text": "Graph attention network",
+      "page": 4
+    },
+    {
+      "level": "H2",
+      "text": "Gated graph sequence neural network",
+      "page": 4
+    },
+    {
+      "level": "H2",
+      "text": "Local pooling layers",
+      "page": 5
+    },
+    {
+      "level": "H2",
+      "text": "Top-k pooling",
+      "page": 5
+    },
+    {
+      "level": "H2",
+      "text": "Self-attention pooling",
+      "page": 5
+    },
+    {
+      "level": "H2",
+      "text": "Heterophilic Graph Learning",
+      "page": 6
+    },
+    {
+      "level": "H2",
+      "text": "Applications",
+      "page": 6
+    },
+    {
+      "level": "H2",
+      "text": "Protein folding",
+      "page": 6
+    },
+    {
+      "level": "H2",
+      "text": "Social networks",
+      "page": 6
+    },
+    {
+      "level": "H2",
+      "text": "Combinatorial optimization",
+      "page": 7
+    },
+    {
+      "level": "H2",
+      "text": "Cyber security",
+      "page": 7
+    },
+    {
+      "level": "H2",
+      "text": "Water distribution networks",
+      "page": 7
+    },
+    {
+      "level": "H2",
+      "text": "Computer Vision",
+      "page": 7
+    },
+    {
+      "level": "H2",
+      "text": "Text and NLP",
+      "page": 7
+    },
+    {
+      "level": "H2",
+      "text": "References",
+      "page": 7
+    },
+    {
+      "level": "H2",
+      "text": "External links",
+      "page": 12
+    }
+  ]
+}
