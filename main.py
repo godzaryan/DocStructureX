@@ -1,13 +1,13 @@
-#!/usr/bin/env python3
-
 import os
 import sys
 import json
-import fitz
+import time
 import re
 from statistics import mode
 from pathlib import Path
-import time
+
+import fitz
+import numpy as np
 
 class DocStructureXExtractor:
     def __init__(self, max_runtime=10.0):
@@ -21,17 +21,19 @@ class DocStructureXExtractor:
             if self._validate_result(toc_result):
                 self._log_time("TOC extraction")
                 return toc_result
+
             if self._time_left() > 5.0:
-                heuristic_result = self._extract_with_pymupdf(pdf_path)
+                heuristic_result = self._extract_with_advanced_heuristics(pdf_path)
                 if self._validate_result(heuristic_result):
                     self._log_time("Heuristic extraction")
                     return heuristic_result
+
             if self._time_left() > 1.0:
                 fallback_result = self._extract_with_regex_fallback(pdf_path)
                 if self._validate_result(fallback_result):
                     self._log_time("Regex fallback extraction")
                     return fallback_result
-            print(f"[Warning] No valid outline extracted for {pdf_path}! Returning empty.")
+
             return {"title": "Untitled Document", "outline": []}
         except Exception as exc:
             print(f"[Error] Exception processing {pdf_path}: {exc}")
@@ -40,20 +42,13 @@ class DocStructureXExtractor:
     def _extract_with_toc(self, pdf_path):
         doc = fitz.open(pdf_path)
         toc = doc.get_toc()
-        if not toc:
-            doc.close()
-            return None
         outline = []
         for level, title, page in toc:
             title_clean = re.sub(r'\s+', ' ', title).strip(' .,;:')
             if not title_clean or len(title_clean) < 3 or len(title_clean) > 150:
                 continue
             lvl = "H1" if level == 1 else "H2" if level == 2 else "H3"
-            outline.append({
-                "level": lvl,
-                "text": title_clean,
-                "page": page
-            })
+            outline.append({"level": lvl, "text": title_clean, "page": page})
         doc.close()
         if not outline:
             return None
@@ -62,124 +57,131 @@ class DocStructureXExtractor:
             document_title = "Untitled Document"
         return {"title": document_title, "outline": outline}
 
-    def _extract_with_pymupdf(self, pdf_path):
+    def _extract_with_advanced_heuristics(self, pdf_path):
         doc = fitz.open(pdf_path)
-        all_blocks = []
+        block_list = []
+        page_height = doc[0].rect.height if len(doc) else 842
+        font_sizes = []
+        font_scores = {}
         for page_num in range(min(50, len(doc))):
+            if self._time_left() < 0.5:
+                break
             page = doc[page_num]
             blocks = page.get_text("dict")
             for block in blocks.get("blocks", []):
-                if "lines" in block:
-                    for line in block["lines"]:
-                        for span in line["spans"]:
-                            text = span["text"].strip()
-                            if text and len(text) > 2:
-                                all_blocks.append({
-                                    "text": text,
-                                    "page": page_num + 1,
-                                    "font_size": span["size"],
-                                    "font_flags": span["flags"],
-                                    "bbox": span["bbox"]
-                                })
-            if self._time_left() < 0.5:
-                print(f"[Warning] Time limit approaching during text extraction on page {page_num+1}")
-                break
+                if "lines" not in block:
+                    continue
+                for line in block["lines"]:
+                    for span in line["spans"]:
+                        txt = span["text"].strip()
+                        fs = span["size"]
+                        flags = span["flags"]
+                        bbox = span["bbox"]
+                        is_bold = bool(flags & 2**4)
+                        if txt and 2 < len(txt) < 200 and not self._is_artifact(txt):
+                            zone = self._block_zone(bbox, page_height)
+                            confidence = self._heading_confidence(txt, fs, is_bold, zone)
+                            block_list.append({
+                                "text": txt, "page": page_num + 1, "font_size": fs, "is_bold": is_bold,
+                                "y0": bbox[1], "zone": zone, "confidence": confidence
+                            })
+                            font_sizes.append(fs)
+                            font_scores.setdefault(fs, 0)
+                            font_scores[fs] += confidence
         doc.close()
-        font_sizes = [b["font_size"] for b in all_blocks if b["font_size"] > 0]
-        try:
-            body_font = mode(font_sizes) if font_sizes else 12
-        except:
-            body_font = 12
-        title = self._extract_title(all_blocks, body_font)
-        headings = self._extract_headings_multilayer(all_blocks, body_font)
-        return {"title": title, "outline": headings}
-
-    def _extract_title(self, blocks, body_font_size):
-        first_pages = [b for b in blocks if b["page"] <= 3]
-        candidates = [b for b in first_pages if (b["font_size"] > body_font_size + 2 and 5 < len(b["text"]) < 200)]
-        if candidates:
-            candidates.sort(key=lambda x: (x["page"], x["bbox"][1]))
-            return candidates[0]["text"]
-        for b in first_pages:
-            if len(b["text"]) > 10:
-                return b["text"]
-        return "Untitled Document"
-
-    def _extract_headings_multilayer(self, blocks, body_font_size):
+        body_font_candidates = self._dominant_fonts(font_scores)
         headings = []
         seen = set()
-        for block in blocks:
-            text = block["text"].strip()
-            if text in seen or len(text) < 3 or len(text) > 150 or self._is_artifact(text):
-                continue
-            level = self._heading_level(block, body_font_size)
-            if level:
-                headings.append({
-                    "level": level,
-                    "text": text,
-                    "page": block["page"]
-                })
-                seen.add(text)
+        for blk in sorted(block_list, key=lambda b: (b["page"], b["y0"])):
+            if blk["text"] in seen: continue
+            lvl = self._heading_level(blk, body_font_candidates)
+            if lvl:
+                headings.append({"level": lvl, "text": blk["text"], "page": blk["page"]})
+                seen.add(blk["text"])
             if self._time_left() < 0.2:
-                print("[Warning] Early stopping heading extraction due to time")
                 break
-        headings.sort(key=lambda x: (x["page"], x["text"]))
-        return self._clean_headings(headings)
+        headings = self._clean_headings(headings)
+        title_candidates = [b for b in block_list if b["page"] <= 3 and b["confidence"] >= 2.0 and b["zone"] == "body"]
+        if title_candidates:
+            title_candidates.sort(key=lambda x: (-x["font_size"], x["page"], x["y0"]))
+            title = title_candidates[0]["text"]
+        elif headings:
+            title = headings[0]["text"]
+        else:
+            title = "Untitled Document"
+        return {"title": title, "outline": headings}
 
-    def _heading_level(self, block, body_font_size):
-        text = block["text"]
-        size_diff = block["font_size"] - body_font_size
-        is_bold = bool(block["font_flags"] & 2**4)
-        numbered = re.match(r'^(\d+\.?\s+|\d+\.\d+\.?\s+|[IVXLC]+\.?\s+)', text)
-        chapter = re.match(r'^(Chapter|Section|Part)\s+\d+', text, re.IGNORECASE)
-        if size_diff >= 6:
+    def _dominant_fonts(self, font_scores):
+        if not font_scores: return [12]
+        top = sorted(font_scores.items(), key=lambda kv: -kv[1])[:2]
+        return [sz for sz, _ in top if sz >= 4]
+
+    def _heading_confidence(self, text, fs, is_bold, zone):
+        confidence = 0
+        if fs > 18: confidence += 1.6
+        if fs > 15: confidence += 1.0
+        if is_bold: confidence += 0.8
+        if zone == "header": confidence -= 0.8
+        if zone == "footer": confidence -= 1.1
+        if re.match(r"^(\d+\.|\d+\.\d+|[IVXLC]+\.)", text): confidence += 0.8
+        if re.match(r"^[A-Z\s]{5,}$", text): confidence += 0.4
+        if re.match(r"^(section|chapter|appendix)\s+\w+", text, re.I): confidence += 0.7
+        if len(text.split()) <= 10: confidence += 0.3
+        return confidence
+
+    def _block_zone(self, bbox, page_height):
+        if bbox[1] < 0.13 * page_height:
+            return "header"
+        if bbox[3] > 0.89 * page_height:
+            return "footer"
+        return "body"
+
+    def _heading_level(self, blk, body_fonts):
+        fs = blk["font_size"]
+        text = blk["text"]
+        is_bold = blk["is_bold"]
+        if fs >= max(body_fonts, default=12) + 6:
             return "H1"
-        if size_diff >= 4 or (size_diff >= 2 and is_bold):
-            return "H2" if size_diff >= 4 else "H3"
-        if is_bold and (numbered or chapter):
+        if fs >= max(body_fonts, default=12) + 3:
             return "H2"
-        if numbered and size_diff >= 1:
-            return "H3"
-        if re.match(r'^\d+\.\s+[A-Z]', text):
+        if is_bold and fs >= min(body_fonts, default=10) + 1:
             return "H2"
-        if re.match(r'^\d+\.\d+\s+[A-Z]', text):
-            return "H3"
+        if re.match(r"^(\d+\.\d+\s+[A-Z])", text): return "H3"
+        if is_bold or re.match(r"^[IVXLC]+\.?\s", text): return "H3"
         return None
 
     def _is_artifact(self, text):
-        if re.match(r'^\d+$', text) or re.match(r'^Page \d+', text, re.IGNORECASE):
-            return True
-        if any(artifact in text.lower() for artifact in ['copyright', 'all rights reserved', 'page', 'table of contents']):
-            return True
-        if re.search(r'(http|www\.|@)', text):
-            return True
-        return False
+        if re.match(r'^\d+$', text): return True
+        if re.match(r'^\s*page \d+', text, re.I): return True
+        artifacts = ['copyright', 'all rights reserved', 'page', 'doi:', 'table of contents', 'abstract', 'official use']
+        return any(a in text.lower() for a in artifacts) or re.search(r'(http|www\.|@)', text)
 
     def _clean_headings(self, headings):
-        cleaned = []
+        unique = []
         seen = set()
         for h in headings:
-            text = re.sub(r'\s+', ' ', h["text"]).strip('.,;:')
-            if text and text not in seen and len(text) >= 3:
-                h["text"] = text
-                cleaned.append(h)
-                seen.add(text)
-        return cleaned
+            t = re.sub(r'\s+', ' ', h["text"]).strip('.,;:')
+            if t and t not in seen and 2 < len(t) < 160:
+                h2 = h.copy()
+                h2["text"] = t
+                unique.append(h2)
+                seen.add(t)
+        return unique
 
     def _extract_with_regex_fallback(self, pdf_path):
         doc = fitz.open(pdf_path)
-        all_text = ""
+        all_text = ''
         for page_num in range(min(50, len(doc))):
             page = doc[page_num]
-            all_text += f"[PAGE_{page_num + 1}]" + page.get_text()
+            all_text += f"[PAGE_{page_num + 1}]{page.get_text()}"
         doc.close()
         headings = []
-        for m in re.finditer(r'\[PAGE_(\d+)\].*?(\d+\.\d*\s+[A-Z][^\n]{5,80})', all_text, re.MULTILINE):
+        for m in re.finditer(r'\[PAGE_(\d+)\].*?(\d+\.\d*\s+[^\n]{5,80})', all_text, re.MULTILINE):
             page_num = int(m.group(1))
             text = m.group(2).strip()
             level = "H3" if text.count('.') > 1 else "H2"
             headings.append({"level": level, "text": text, "page": page_num})
-        for m in re.finditer(r'\[PAGE_(\d+)\].*?((Chapter|Section)\s+\d+[^\n]{0,50})', all_text, re.IGNORECASE | re.MULTILINE):
+        for m in re.finditer(r'\[PAGE_(\d+)\].*?((Section|Chapter|Part)\s+\d+[^\n]{0,50})', all_text, re.I | re.MULTILINE):
             page_num = int(m.group(1))
             text = m.group(2).strip()
             headings.append({"level": "H1", "text": text, "page": page_num})
@@ -188,12 +190,12 @@ class DocStructureXExtractor:
         return {"title": title, "outline": headings[:20]}
 
     def _validate_result(self, result):
-        if not result or not isinstance(result, dict):
-            return False
-        if "outline" not in result or not isinstance(result["outline"], list):
-            return False
-        count = len(result["outline"])
-        return 1 <= count <= 100
+        return (
+            result and isinstance(result, dict)
+            and "outline" in result
+            and isinstance(result["outline"], list)
+            and 1 <= len(result["outline"]) <= 100
+        )
 
     def _time_left(self):
         elapsed = time.time() - self.start_time if self.start_time else 0
@@ -202,6 +204,7 @@ class DocStructureXExtractor:
     def _log_time(self, step_name):
         elapsed = time.time() - self.start_time
         print(f"[Info] {step_name} completed in {elapsed:.2f} seconds (max allowed: {self.max_runtime}s)")
+
 
 def process_directory(input_dir, output_dir):
     extractor = DocStructureXExtractor()
