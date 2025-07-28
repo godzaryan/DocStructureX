@@ -207,5 +207,4 @@ This project is licensed under the **MIT License**. See the [LICENSE](LICENSE) f
 
 ---
 
-*Built by Akash Kumar (Aryan) – Backend Developer and PDF Enthusiast*  
-*Good luck and happy extracting! 🚀*
+*Built by Akash Kumar (Aryan)*
